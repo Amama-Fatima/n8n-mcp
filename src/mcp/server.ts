@@ -132,8 +132,12 @@ export class N8NDocumentationMCPServer {
       },
       {
         capabilities: {
-          tools: {},
+        tools: { listChanged: false },
+        resources: {
+            subscribe: true,
+            listChanged: true,
         },
+    },
       }
     );
 
