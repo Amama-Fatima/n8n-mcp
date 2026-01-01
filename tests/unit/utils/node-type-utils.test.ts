@@ -7,7 +7,10 @@ import {
   isBaseNode,
   isLangChainNode,
   isValidNodeTypeFormat,
-  getNodeTypeVariations
+  getNodeTypeVariations,
+  isTriggerNode,
+  isActivatableTrigger,
+  getTriggerTypeDescription
 } from '@/utils/node-type-utils';
 
 describe('node-type-utils', () => {
@@ -194,6 +197,169 @@ describe('node-type-utils', () => {
       const variations = getNodeTypeVariations('nodes-base.httpRequest');
       const uniqueVariations = [...new Set(variations)];
       expect(variations.length).toBe(uniqueVariations.length);
+    });
+  });
+
+  describe('isTriggerNode', () => {
+    it('recognizes executeWorkflowTrigger as a trigger', () => {
+      expect(isTriggerNode('n8n-nodes-base.executeWorkflowTrigger')).toBe(true);
+      expect(isTriggerNode('nodes-base.executeWorkflowTrigger')).toBe(true);
+    });
+
+    it('recognizes schedule triggers', () => {
+      expect(isTriggerNode('n8n-nodes-base.scheduleTrigger')).toBe(true);
+      expect(isTriggerNode('n8n-nodes-base.cronTrigger')).toBe(true);
+    });
+
+    it('recognizes webhook triggers', () => {
+      expect(isTriggerNode('n8n-nodes-base.webhook')).toBe(true);
+      expect(isTriggerNode('n8n-nodes-base.webhookTrigger')).toBe(true);
+    });
+
+    it('recognizes manual triggers', () => {
+      expect(isTriggerNode('n8n-nodes-base.manualTrigger')).toBe(true);
+      expect(isTriggerNode('n8n-nodes-base.start')).toBe(true);
+      expect(isTriggerNode('n8n-nodes-base.formTrigger')).toBe(true);
+    });
+
+    it('recognizes email and polling triggers', () => {
+      expect(isTriggerNode('n8n-nodes-base.emailTrigger')).toBe(true);
+      expect(isTriggerNode('n8n-nodes-base.imapTrigger')).toBe(true);
+      expect(isTriggerNode('n8n-nodes-base.gmailTrigger')).toBe(true);
+    });
+
+    it('recognizes various trigger types', () => {
+      expect(isTriggerNode('n8n-nodes-base.slackTrigger')).toBe(true);
+      expect(isTriggerNode('n8n-nodes-base.githubTrigger')).toBe(true);
+      expect(isTriggerNode('n8n-nodes-base.twilioTrigger')).toBe(true);
+    });
+
+    it('does NOT recognize respondToWebhook as a trigger', () => {
+      expect(isTriggerNode('n8n-nodes-base.respondToWebhook')).toBe(false);
+    });
+
+    it('does NOT recognize regular nodes as triggers', () => {
+      expect(isTriggerNode('n8n-nodes-base.set')).toBe(false);
+      expect(isTriggerNode('n8n-nodes-base.httpRequest')).toBe(false);
+      expect(isTriggerNode('n8n-nodes-base.code')).toBe(false);
+      expect(isTriggerNode('n8n-nodes-base.slack')).toBe(false);
+    });
+
+    it('handles normalized and non-normalized node types', () => {
+      expect(isTriggerNode('n8n-nodes-base.webhook')).toBe(true);
+      expect(isTriggerNode('nodes-base.webhook')).toBe(true);
+    });
+
+    it('is case-insensitive', () => {
+      expect(isTriggerNode('n8n-nodes-base.WebhookTrigger')).toBe(true);
+      expect(isTriggerNode('n8n-nodes-base.EMAILTRIGGER')).toBe(true);
+    });
+  });
+
+  describe('isActivatableTrigger', () => {
+    it('executeWorkflowTrigger IS activatable (n8n 2.0+ requires activation)', () => {
+      // Since n8n 2.0, executeWorkflowTrigger MUST be activated to work
+      expect(isActivatableTrigger('n8n-nodes-base.executeWorkflowTrigger')).toBe(true);
+      expect(isActivatableTrigger('nodes-base.executeWorkflowTrigger')).toBe(true);
+    });
+
+    it('webhook triggers ARE activatable', () => {
+      expect(isActivatableTrigger('n8n-nodes-base.webhook')).toBe(true);
+      expect(isActivatableTrigger('n8n-nodes-base.webhookTrigger')).toBe(true);
+    });
+
+    it('schedule triggers ARE activatable', () => {
+      expect(isActivatableTrigger('n8n-nodes-base.scheduleTrigger')).toBe(true);
+      expect(isActivatableTrigger('n8n-nodes-base.cronTrigger')).toBe(true);
+    });
+
+    it('manual triggers ARE activatable', () => {
+      expect(isActivatableTrigger('n8n-nodes-base.manualTrigger')).toBe(true);
+      expect(isActivatableTrigger('n8n-nodes-base.start')).toBe(true);
+      expect(isActivatableTrigger('n8n-nodes-base.formTrigger')).toBe(true);
+    });
+
+    it('polling triggers ARE activatable', () => {
+      expect(isActivatableTrigger('n8n-nodes-base.emailTrigger')).toBe(true);
+      expect(isActivatableTrigger('n8n-nodes-base.slackTrigger')).toBe(true);
+      expect(isActivatableTrigger('n8n-nodes-base.gmailTrigger')).toBe(true);
+    });
+
+    it('regular nodes are NOT activatable', () => {
+      expect(isActivatableTrigger('n8n-nodes-base.set')).toBe(false);
+      expect(isActivatableTrigger('n8n-nodes-base.httpRequest')).toBe(false);
+      expect(isActivatableTrigger('n8n-nodes-base.respondToWebhook')).toBe(false);
+    });
+  });
+
+  describe('getTriggerTypeDescription', () => {
+    it('describes executeWorkflowTrigger correctly', () => {
+      const desc = getTriggerTypeDescription('n8n-nodes-base.executeWorkflowTrigger');
+      expect(desc).toContain('Execute Workflow');
+      expect(desc).toContain('invoked by other workflows');
+    });
+
+    it('describes webhook triggers correctly', () => {
+      const desc = getTriggerTypeDescription('n8n-nodes-base.webhook');
+      expect(desc).toContain('Webhook');
+      expect(desc).toContain('HTTP');
+    });
+
+    it('describes schedule triggers correctly', () => {
+      const desc = getTriggerTypeDescription('n8n-nodes-base.scheduleTrigger');
+      expect(desc).toContain('Schedule');
+      expect(desc).toContain('time-based');
+    });
+
+    it('describes manual triggers correctly', () => {
+      const desc = getTriggerTypeDescription('n8n-nodes-base.manualTrigger');
+      expect(desc).toContain('Manual');
+    });
+
+    it('describes email triggers correctly', () => {
+      const desc = getTriggerTypeDescription('n8n-nodes-base.emailTrigger');
+      expect(desc).toContain('Email');
+      expect(desc).toContain('polling');
+    });
+
+    it('provides generic description for unknown triggers', () => {
+      const desc = getTriggerTypeDescription('n8n-nodes-base.customTrigger');
+      expect(desc).toContain('Trigger');
+    });
+  });
+
+  describe('Integration: Trigger Classification', () => {
+    it('all triggers detected by isTriggerNode should be classified correctly', () => {
+      const triggers = [
+        'n8n-nodes-base.webhook',
+        'n8n-nodes-base.webhookTrigger',
+        'n8n-nodes-base.scheduleTrigger',
+        'n8n-nodes-base.manualTrigger',
+        'n8n-nodes-base.executeWorkflowTrigger',
+        'n8n-nodes-base.emailTrigger'
+      ];
+
+      for (const trigger of triggers) {
+        expect(isTriggerNode(trigger)).toBe(true);
+        const desc = getTriggerTypeDescription(trigger);
+        expect(desc).toBeTruthy();
+        expect(desc).not.toBe('Unknown trigger type');
+      }
+    });
+
+    it('all triggers are activatable (n8n 2.0+ behavior)', () => {
+      // Since n8n 2.0, all triggers including executeWorkflowTrigger are activatable
+      const triggers = [
+        'n8n-nodes-base.webhook',
+        'n8n-nodes-base.scheduleTrigger',
+        'n8n-nodes-base.executeWorkflowTrigger',
+        'n8n-nodes-base.emailTrigger'
+      ];
+
+      for (const type of triggers) {
+        expect(isTriggerNode(type)).toBe(true); // All are triggers
+        expect(isActivatableTrigger(type)).toBe(true); // All are activatable in n8n 2.0+
+      }
     });
   });
 });

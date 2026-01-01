@@ -175,14 +175,18 @@ describe.skipIf(!dbExists)('Database Content Validation', () => {
       ).toBeGreaterThan(100); // Should have ~108 triggers
     });
 
-    it('MUST have templates table (optional but recommended)', () => {
+    it('MUST have templates table populated', () => {
       const templatesCount = db.prepare('SELECT COUNT(*) as count FROM templates').get();
 
-      if (templatesCount.count === 0) {
-        console.warn('WARNING: No workflow templates found. Run: npm run fetch:templates');
-      }
-      // This is not critical, so we don't fail the test
-      expect(templatesCount.count).toBeGreaterThanOrEqual(0);
+      expect(templatesCount.count,
+        'CRITICAL: Templates table is EMPTY! Templates are required for search_templates MCP tool and real-world examples. ' +
+        'Run: npm run fetch:templates OR restore from git history.'
+      ).toBeGreaterThan(0);
+
+      expect(templatesCount.count,
+        `WARNING: Expected at least 2500 templates, got ${templatesCount.count}. ` +
+        'Templates may have been partially lost. Run: npm run fetch:templates'
+      ).toBeGreaterThanOrEqual(2500);
     });
   });
 
@@ -205,9 +209,20 @@ describe.skipIf(!dbExists)('Database Content Validation', () => {
 
     it('MUST have FTS5 index properly ranked', () => {
       const results = db.prepare(`
-        SELECT node_type, rank FROM nodes_fts
+        SELECT
+          n.node_type,
+          rank
+        FROM nodes n
+        JOIN nodes_fts ON n.rowid = nodes_fts.rowid
         WHERE nodes_fts MATCH 'webhook'
-        ORDER BY rank
+        ORDER BY
+          CASE
+            WHEN LOWER(n.display_name) = LOWER('webhook') THEN 0
+            WHEN LOWER(n.display_name) LIKE LOWER('%webhook%') THEN 1
+            WHEN LOWER(n.node_type) LIKE LOWER('%webhook%') THEN 2
+            ELSE 3
+          END,
+          rank
         LIMIT 5
       `).all();
 
@@ -215,7 +230,7 @@ describe.skipIf(!dbExists)('Database Content Validation', () => {
         'CRITICAL: FTS5 ranking not working. Search quality will be degraded.'
       ).toBeGreaterThan(0);
 
-      // Exact match should be in top results
+      // Exact match should be in top results (using production boosting logic with CASE-first ordering)
       const topNodes = results.slice(0, 3).map((r: any) => r.node_type);
       expect(topNodes,
         'WARNING: Exact match "nodes-base.webhook" not in top 3 ranked results'

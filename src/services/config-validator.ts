@@ -1,9 +1,11 @@
 /**
  * Configuration Validator Service
- * 
+ *
  * Validates node configurations to catch errors before execution.
  * Provides helpful suggestions and identifies missing or misconfigured properties.
  */
+
+import { shouldSkipLiteralValidation } from '../utils/expression-utils.js';
 
 export interface ValidationResult {
   valid: boolean;
@@ -174,35 +176,107 @@ export class ConfigValidator {
   }
   
   /**
-   * Check if a property is visible given current config
+   * Evaluate a single _cnd conditional operator from n8n displayOptions.
+   * Supports: eq, not, gte, lte, gt, lt, between, startsWith, endsWith, includes, regex, exists
    */
-  protected static isPropertyVisible(prop: any, config: Record<string, any>): boolean {
+  private static evaluateCondition(
+    condition: { _cnd: Record<string, any> },
+    configValue: any
+  ): boolean {
+    const cnd = condition._cnd;
+
+    if ('eq' in cnd) return configValue === cnd.eq;
+    if ('not' in cnd) return configValue !== cnd.not;
+    if ('gte' in cnd) return configValue >= cnd.gte;
+    if ('lte' in cnd) return configValue <= cnd.lte;
+    if ('gt' in cnd) return configValue > cnd.gt;
+    if ('lt' in cnd) return configValue < cnd.lt;
+    if ('between' in cnd) {
+      const between = cnd.between;
+      if (!between || typeof between.from === 'undefined' || typeof between.to === 'undefined') {
+        return false; // Invalid between structure
+      }
+      return configValue >= between.from && configValue <= between.to;
+    }
+    if ('startsWith' in cnd) {
+      return typeof configValue === 'string' && configValue.startsWith(cnd.startsWith);
+    }
+    if ('endsWith' in cnd) {
+      return typeof configValue === 'string' && configValue.endsWith(cnd.endsWith);
+    }
+    if ('includes' in cnd) {
+      return typeof configValue === 'string' && configValue.includes(cnd.includes);
+    }
+    if ('regex' in cnd) {
+      if (typeof configValue !== 'string') return false;
+      try {
+        return new RegExp(cnd.regex).test(configValue);
+      } catch {
+        return false; // Invalid regex pattern
+      }
+    }
+    if ('exists' in cnd) {
+      return configValue !== undefined && configValue !== null;
+    }
+
+    // Unknown operator - default to not matching (conservative)
+    return false;
+  }
+
+  /**
+   * Check if a config value matches an expected value.
+   * Handles both plain values and _cnd conditional operators.
+   */
+  private static valueMatches(expectedValue: any, configValue: any): boolean {
+    // Check if this is a _cnd conditional
+    if (expectedValue && typeof expectedValue === 'object' && '_cnd' in expectedValue) {
+      return this.evaluateCondition(expectedValue, configValue);
+    }
+    // Plain value comparison
+    return configValue === expectedValue;
+  }
+
+  /**
+   * Check if a property is visible given current config.
+   * Supports n8n's _cnd conditional operators in displayOptions.
+   */
+  public static isPropertyVisible(prop: any, config: Record<string, any>): boolean {
     if (!prop.displayOptions) return true;
-    
-    // Check show conditions
+
+    // Check show conditions - property visible only if ALL conditions match
     if (prop.displayOptions.show) {
       for (const [key, values] of Object.entries(prop.displayOptions.show)) {
         const configValue = config[key];
         const expectedValues = Array.isArray(values) ? values : [values];
-        
-        if (!expectedValues.includes(configValue)) {
+
+        // Check if ANY expected value matches (OR logic within a key)
+        const anyMatch = expectedValues.some(expected =>
+          this.valueMatches(expected, configValue)
+        );
+
+        if (!anyMatch) {
           return false;
         }
       }
     }
-    
-    // Check hide conditions
+
+    // Check hide conditions - property hidden if ANY condition matches
     if (prop.displayOptions.hide) {
       for (const [key, values] of Object.entries(prop.displayOptions.hide)) {
         const configValue = config[key];
         const expectedValues = Array.isArray(values) ? values : [values];
-        
-        if (expectedValues.includes(configValue)) {
+
+        // Check if ANY expected value matches (property should be hidden)
+        const anyMatch = expectedValues.some(expected =>
+          this.valueMatches(expected, configValue)
+        );
+
+        if (anyMatch) {
           return false;
         }
       }
     }
-    
+
     return true;
   }
   
@@ -381,13 +455,16 @@ export class ConfigValidator {
   ): void {
     // URL validation
     if (config.url && typeof config.url === 'string') {
-      if (!config.url.startsWith('http://') && !config.url.startsWith('https://')) {
-        errors.push({
-          type: 'invalid_value',
-          property: 'url',
-          message: 'URL must start with http:// or https://',
-          fix: 'Add https:// to the beginning of your URL'
-        });
+      // Skip validation for expressions - they will be evaluated at runtime
+      if (!shouldSkipLiteralValidation(config.url)) {
+        if (!config.url.startsWith('http://') && !config.url.startsWith('https://')) {
+          errors.push({
+            type: 'invalid_value',
+            property: 'url',
+            message: 'URL must start with http:// or https://',
+            fix: 'Add https:// to the beginning of your URL'
+          });
+        }
       }
     }
     
@@ -417,15 +494,19 @@ export class ConfigValidator {
     
     // JSON body validation
     if (config.sendBody && config.contentType === 'json' && config.jsonBody) {
-      try {
-        JSON.parse(config.jsonBody);
-      } catch (e) {
-        errors.push({
-          type: 'invalid_value',
-          property: 'jsonBody',
-          message: 'jsonBody contains invalid JSON',
-          fix: 'Ensure jsonBody contains valid JSON syntax'
-        });
+      // Skip validation for expressions - they will be evaluated at runtime
+      if (!shouldSkipLiteralValidation(config.jsonBody)) {
+        try {
+          JSON.parse(config.jsonBody);
+        } catch (e) {
+          const errorMsg = e instanceof Error ? e.message : 'Unknown parsing error';
+          errors.push({
+            type: 'invalid_value',
+            property: 'jsonBody',
+            message: `jsonBody contains invalid JSON: ${errorMsg}`,
+            fix: 'Fix JSON syntax error and ensure valid JSON format'
+          });
+        }
       }
     }
   }
