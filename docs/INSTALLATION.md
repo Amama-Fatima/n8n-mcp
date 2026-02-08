@@ -18,7 +18,6 @@ The fastest way to get n8n-MCP running:
 # Using Docker (recommended)
 cat > .env << EOF
 AUTH_TOKEN=$(openssl rand -base64 32)
-USE_FIXED_HTTP=true
 EOF
 docker compose up -d
 ```
@@ -49,7 +48,6 @@ docker compose up -d
        
        environment:
          MCP_MODE: ${MCP_MODE:-http}
-         USE_FIXED_HTTP: ${USE_FIXED_HTTP:-true}
          AUTH_TOKEN: ${AUTH_TOKEN:?AUTH_TOKEN is required}
          NODE_ENV: ${NODE_ENV:-production}
          LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -59,10 +57,10 @@ docker compose up -d
          - n8n-mcp-data:/app/data
        
        ports:
-         - "${PORT:-3000}:3000"
-       
+         - "${PORT:-3000}:${PORT:-3000}"
+
        healthcheck:
-         test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
+         test: ["CMD", "sh", "-c", "curl -f http://127.0.0.1:$${PORT:-3000}/health"]
          interval: 30s
          timeout: 10s
          retries: 3

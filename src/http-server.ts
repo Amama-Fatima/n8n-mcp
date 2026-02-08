@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 /**
- * Fixed HTTP server for n8n-MCP that properly handles StreamableHTTPServerTransport initialization
- * This implementation ensures the transport is properly initialized before handling requests
+ * @deprecated This fixed HTTP server is deprecated as of v2.31.8.
+ * Use SingleSessionHTTPServer from http-server-single-session.ts instead.
+ *
+ * This implementation does not support SSE streaming required by clients like OpenAI Codex.
+ * See: https://github.com/czlonkowski/n8n-mcp/issues/524
+ *
+ * Original purpose: Fixed HTTP server for n8n-MCP that properly handles
+ * StreamableHTTPServerTransport initialization by bypassing it entirely.
+ * This implementation ensures the transport is properly initialized before handling requests.
  */
 import express from 'express';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -22,6 +29,17 @@ import {
 } from './utils/protocol-version';
 
 dotenv.config();
+
+/**
+ * MCP tool response format with optional structured content
+ */
+interface MCPToolResponse {
+  content: Array<{
+    type: 'text';
+    text: string;
+  }>;
+  structuredContent?: unknown;
+}
 
 let expressServer: any;
 let authToken: string | null = null;
@@ -114,7 +132,18 @@ async function shutdown() {
   }
 }
 
+/**
+ * @deprecated Use SingleSessionHTTPServer from http-server-single-session.ts instead.
+ * This function does not support SSE streaming required by clients like OpenAI Codex.
+ */
 export async function startFixedHTTPServer() {
+  // Log deprecation warning
+  logger.warn(
+    'DEPRECATION: startFixedHTTPServer() is deprecated as of v2.31.8. ' +
+    'Use SingleSessionHTTPServer which supports SSE streaming. ' +
+    'See: https://github.com/czlonkowski/n8n-mcp/issues/524'
+  );
+
   validateEnvironment();
   
   const app = express();
@@ -401,19 +430,46 @@ export async function startFixedHTTPServer() {
               // Delegate to the MCP server
               const toolName = jsonRpcRequest.params?.name;
               const toolArgs = jsonRpcRequest.params?.arguments || {};
-              
+
               try {
                 const result = await mcpServer.executeTool(toolName, toolArgs);
+
+                // Convert result to JSON text for content field
+                let responseText = JSON.stringify(result, null, 2);
+
+                // Build MCP-compliant response with structuredContent for validation tools
+                const mcpResult: MCPToolResponse = {
+                  content: [
+                    {
+                      type: 'text',
+                      text: responseText
+                    }
+                  ]
+                };
+
+                // Add structuredContent for validation tools (they have outputSchema)
+                // Apply 1MB safety limit to prevent memory issues (matches STDIO server behavior)
+                if (toolName.startsWith('validate_')) {
+                  const resultSize = responseText.length;
+
+                  if (resultSize > 1000000) {
+                    // Response is too large - truncate and warn
+                    logger.warn(
+                      `Validation tool ${toolName} response is very large (${resultSize} chars). ` +
+                      `Truncating for HTTP transport safety.`
+                    );
+                    mcpResult.content[0].text = responseText.substring(0, 999000) +
+                      '\n\n[Response truncated due to size limits]';
+                    // Don't include structuredContent for truncated responses
+                  } else {
+                    // Normal case - include structured content for MCP protocol compliance
+                    mcpResult.structuredContent = result;
+                  }
+                }
+
                 response = {
                   jsonrpc: '2.0',
-                  result: {
-                    content: [
-                      {
-                        type: 'text',
-                        text: JSON.stringify(result, null, 2)
-                      }
-                    ]
-                  },
+                  result: mcpResult,
                   id: jsonRpcRequest.id
                 };
               } catch (error) {

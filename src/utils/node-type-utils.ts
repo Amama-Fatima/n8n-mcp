@@ -141,3 +141,108 @@ export function getNodeTypeVariations(type: string): string[] {
   // Remove duplicates while preserving order
   return [...new Set(variations)];
 }
+
+/**
+ * Check if a node is ANY type of trigger (including executeWorkflowTrigger)
+ *
+ * This function determines if a node can start a workflow execution.
+ * Returns true for:
+ * - Webhook triggers (webhook, webhookTrigger)
+ * - Time-based triggers (schedule, cron)
+ * - Poll-based triggers (emailTrigger, slackTrigger, etc.)
+ * - Manual triggers (manualTrigger, start, formTrigger)
+ * - Sub-workflow triggers (executeWorkflowTrigger)
+ *
+ * Used for: Disconnection validation (triggers don't need incoming connections)
+ *
+ * @param nodeType - The node type to check (e.g., "n8n-nodes-base.executeWorkflowTrigger")
+ * @returns true if node is any type of trigger
+ */
+export function isTriggerNode(nodeType: string): boolean {
+  const normalized = normalizeNodeType(nodeType);
+  const lowerType = normalized.toLowerCase();
+
+  // Check for trigger pattern in node type name
+  if (lowerType.includes('trigger')) {
+    return true;
+  }
+
+  // Check for webhook nodes (excluding respondToWebhook which is NOT a trigger)
+  if (lowerType.includes('webhook') && !lowerType.includes('respond')) {
+    return true;
+  }
+
+  // Check for specific trigger types that don't have 'trigger' in their name
+  const specificTriggers = [
+    'nodes-base.start',
+    'nodes-base.manualTrigger',
+    'nodes-base.formTrigger'
+  ];
+
+  return specificTriggers.includes(normalized);
+}
+
+/**
+ * Check if a node is an ACTIVATABLE trigger
+ *
+ * This function determines if a node can be used to activate a workflow.
+ * Returns true for:
+ * - Webhook triggers (webhook, webhookTrigger)
+ * - Time-based triggers (schedule, cron)
+ * - Poll-based triggers (emailTrigger, slackTrigger, etc.)
+ * - Manual triggers (manualTrigger, start, formTrigger)
+ * - Sub-workflow triggers (executeWorkflowTrigger) - requires activation in n8n 2.0+
+ *
+ * Used for: Activation validation (active workflows need activatable triggers)
+ *
+ * NOTE: Since n8n 2.0, executeWorkflowTrigger workflows MUST be activated to work.
+ * This is a breaking change from pre-2.0 behavior.
+ *
+ * @param nodeType - The node type to check
+ * @returns true if node can activate a workflow
+ */
+export function isActivatableTrigger(nodeType: string): boolean {
+  // All trigger nodes can activate workflows (including executeWorkflowTrigger in n8n 2.0+)
+  return isTriggerNode(nodeType);
+}
+
+/**
+ * Get human-readable description of trigger type
+ *
+ * @param nodeType - The node type
+ * @returns Description of what triggers this node
+ */
+export function getTriggerTypeDescription(nodeType: string): string {
+  const normalized = normalizeNodeType(nodeType);
+  const lowerType = normalized.toLowerCase();
+
+  if (lowerType.includes('executeworkflow')) {
+    return 'Execute Workflow Trigger (invoked by other workflows)';
+  }
+
+  if (lowerType.includes('webhook')) {
+    return 'Webhook Trigger (HTTP requests)';
+  }
+
+  if (lowerType.includes('schedule') || lowerType.includes('cron')) {
+    return 'Schedule Trigger (time-based)';
+  }
+
+  if (lowerType.includes('manual') || normalized === 'nodes-base.start') {
+    return 'Manual Trigger (manual execution)';
+  }
+
+  if (lowerType.includes('email') || lowerType.includes('imap') || lowerType.includes('gmail')) {
+    return 'Email Trigger (polling)';
+  }
+
+  if (lowerType.includes('form')) {
+    return 'Form Trigger (form submissions)';
+  }
+
+  if (lowerType.includes('trigger')) {
+    return 'Trigger (event-based)';
+  }
+
+  return 'Unknown trigger type';
+}
